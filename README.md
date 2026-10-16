@@ -160,9 +160,3 @@ docker compose exec -T db psql -U league league_management < backup.sql
 3. Shareable score-card image rendering is scaffolded for Phase 7 (download/share endpoints can use `satori` or Playwright).
 4. Some admin sub-pages (teams CRUD UI, AI review UI, secondary admin management) are linked from the dashboard; core match score + CSV import + auth are fully wired.
 5. Set production secrets in Coolify only; rotate `SESSION_SECRET` and DB password carefully.
-
----
-
-## Licence
-
-Proprietary — League Management organisers. Not for redistribution without permission.
