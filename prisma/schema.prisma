@@ -1,0 +1,370 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  FAN
+  ADMIN
+  PRIMARY_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  HALF_TIME
+  FULL_TIME
+  POSTPONED
+  CANCELLED
+}
+
+enum MatchStage {
+  GROUP
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+enum EventType {
+  GOAL
+  OWN_GOAL
+  ASSIST
+  YELLOW_CARD
+  RED_CARD
+  SUBSTITUTION
+}
+
+enum PredictionType {
+  OUTCOME
+  DOUBLE_CHANCE
+  CORRECT_SCORE
+  TOTAL_GOALS
+  BTTS
+}
+
+enum PredictionStatus {
+  ACTIVE
+  CLOSED
+  GRADED
+}
+
+enum AIAnalysisType {
+  PREVIEW
+  POST_MATCH
+  TOURNAMENT_SUMMARY
+  GROUP_OUTLOOK
+}
+
+enum AIStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  STALE
+  FAILED
+}
+
+enum AIJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ImportStatus {
+  PENDING
+  PREVIEWED
+  COMMITTED
+  FAILED
+}
+
+model User {
+  id                String     @id @default(cuid())
+  username          String
+  normalizedUsername String    @unique
+  phone             String
+  normalizedPhone   String     @unique
+  passwordHash      String
+  birthYear         Int?
+  role              Role       @default(FAN)
+  status            UserStatus @default(ACTIVE)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  sessions          Session[]
+  predictions       Prediction[]
+  auditLogs         AdminAuditLog[] @relation("ActorAdmin")
+  matchEvents       MatchEvent[]    @relation("EventCreator")
+  playerImports     PlayerImport[]
+  aiAnalysesReviewed AIAnalysis[]   @relation("AIReviewer")
+  recoveryTokens    RecoveryToken[]
+
+  @@index([role])
+  @@index([status])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model RecoveryToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Group {
+  id           String   @id @default(cuid())
+  code         String   @unique // A, B, C, D
+  name         String
+  displayOrder Int
+  createdAt    DateTime @default(now())
+
+  teams  Team[]
+  matches Match[]
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  groupId     String
+  shortName   String?  // 3-char code, admin-editable
+  color1      String   @default("#16a34a") // flag stripe top
+  color2      String   @default("#ffffff") // flag stripe middle
+  color3      String   @default("#0f172a") // flag stripe bottom
+  description String?
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  group          Group         @relation(fields: [groupId], references: [id])
+  players        Player[]
+  homeMatches    Match[]       @relation("HomeTeam")
+  awayMatches    Match[]       @relation("AwayTeam")
+  matchEvents    MatchEvent[]
+  playerImports  PlayerImport[]
+
+  @@index([groupId])
+}
+
+model Player {
+  id              String   @id @default(cuid())
+  teamId          String
+  fullName        String
+  normalizedName  String
+  position        String?
+  age             Int?
+  dateOfBirth     DateTime?
+  phone           String?  // private
+  jerseyNumber    Int?
+  nationality     String?
+  status          String   @default("ACTIVE")
+  adminNotes      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  team            Team         @relation(fields: [teamId], references: [id])
+  eventsAsPlayer  MatchEvent[] @relation("EventPlayer")
+  eventsAsRelated MatchEvent[] @relation("RelatedPlayer")
+
+  @@unique([teamId, normalizedName])
+  @@index([teamId])
+  @@index([normalizedName])
+}
+
+model Match {
+  id                  String      @id @default(cuid())
+  stage               MatchStage  @default(GROUP)
+  groupId             String?
+  homeTeamId          String?
+  awayTeamId          String?
+  // Knockout slots: QF1, QF2, QF3, QF4, SF1, SF2, ThirdPlace, Final
+  homeSlot            String?
+  awaySlot            String?
+  slotCode            String?     // e.g. QF1 for the match itself
+  kickoffAt           DateTime?   // null = Time TBC
+  venue               String?
+  status              MatchStatus @default(SCHEDULED)
+  halfTimeHomeScore   Int?
+  halfTimeAwayScore   Int?
+  fullTimeHomeScore   Int?
+  fullTimeAwayScore   Int?
+  published           Boolean     @default(true)
+  notes               String?
+  predictionCutoffAt  DateTime?
+  matchday            Int?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  group       Group?       @relation(fields: [groupId], references: [id])
+  homeTeam    Team?        @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team?        @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  events      MatchEvent[]
+  predictions Prediction[]
+  aiAnalyses  AIAnalysis[]
+
+  @@index([status])
+  @@index([stage])
+  @@index([groupId])
+  @@index([kickoffAt])
+  @@index([homeTeamId])
+  @@index([awayTeamId])
+}
+
+model MatchEvent {
+  id               String    @id @default(cuid())
+  matchId          String
+  teamId           String?
+  playerId         String?
+  relatedPlayerId  String?   // assist provider
+  eventType        EventType
+  minute           Int?
+  addedTime        Int?
+  ownGoal          Boolean   @default(false)
+  notes            String?
+  createdByAdminId String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  match          Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team           Team?  @relation(fields: [teamId], references: [id])
+  player         Player? @relation("EventPlayer", fields: [playerId], references: [id])
+  relatedPlayer  Player? @relation("RelatedPlayer", fields: [relatedPlayerId], references: [id])
+  createdByAdmin User?  @relation("EventCreator", fields: [createdByAdminId], references: [id])
+
+  @@index([matchId])
+  @@index([playerId])
+}
+
+model Prediction {
+  id              String           @id @default(cuid())
+  userId          String
+  matchId         String
+  type            PredictionType
+  // OUTCOME: HOME | DRAW | AWAY
+  selectedOutcome String?
+  homeScore       Int?
+  awayScore       Int?
+  comment         String?
+  status          PredictionStatus @default(ACTIVE)
+  isCorrect       Boolean?
+  pointsAwarded   Int?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  // Multiple predictions allowed per user/match/type (history + double-entry detection)
+  @@index([userId, matchId, type])
+  @@index([matchId])
+  @@index([userId])
+  @@index([status])
+}
+
+model AIAnalysis {
+  id            String         @id @default(cuid())
+  matchId       String?
+  analysisType  AIAnalysisType
+  model         String?
+  promptVersion String?
+  sourceSnapshot String?       // JSON reference
+  content       String
+  structured    String?        // JSON
+  status        AIStatus       @default(DRAFT)
+  generatedAt   DateTime?
+  reviewedById  String?
+  publishedAt   DateTime?
+  stale         Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  match      Match? @relation(fields: [matchId], references: [id])
+  reviewedBy User?  @relation("AIReviewer", fields: [reviewedById], references: [id])
+
+  @@index([matchId])
+  @@index([status])
+  @@index([analysisType])
+}
+
+model AIJob {
+  id          String      @id @default(cuid())
+  type        String
+  payload     String      // JSON
+  status      AIJobStatus @default(QUEUED)
+  attempts    Int         @default(0)
+  availableAt DateTime    @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  lastError   String?
+  createdAt   DateTime    @default(now())
+
+  @@index([status, availableAt])
+}
+
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+  actorAdminId String
+  action       String
+  targetType   String?
+  targetId     String?
+  metadata     String?  // JSON, no secrets
+  createdAt    DateTime @default(now())
+
+  actorAdmin User @relation("ActorAdmin", fields: [actorAdminId], references: [id])
+
+  @@index([actorAdminId])
+  @@index([createdAt])
+}
+
+model PlayerImport {
+  id               String       @id @default(cuid())
+  teamId           String
+  uploadedByAdminId String
+  filename         String
+  totalRows        Int          @default(0)
+  validRows        Int          @default(0)
+  invalidRows      Int          @default(0)
+  status           ImportStatus @default(PENDING)
+  reportJson       String?
+  createdAt        DateTime     @default(now())
+
+  team           Team @relation(fields: [teamId], references: [id])
+  uploadedByAdmin User @relation(fields: [uploadedByAdminId], references: [id])
+
+  @@index([teamId])
+}
+
+model AppSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
