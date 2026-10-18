@@ -1,60 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
   verifyPassword,
+  normalizeUsername,
   createSession,
   setSessionCookie,
-  normalizeUsername,
-  normalizePhone,
-  isAdmin,
 } from "@/lib/auth";
+import { z } from "zod";
 
 const schema = z.object({
-  identifier: z.string().min(1),
+  username: z.string().min(1),
   password: z.string().min(1),
 });
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
-    }
+    const data = schema.parse(body);
+    const normalizedUsername = normalizeUsername(data.username);
 
-    const { identifier, password } = parsed.data;
-    const normalized = normalizeUsername(identifier);
-    const phoneNorm = normalizePhone(identifier);
-
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { normalizedUsername: normalized },
-          { normalizedPhone: phoneNorm },
-        ],
-        status: "ACTIVE",
-      },
+    const user = await prisma.user.findUnique({
+      where: { normalizedUsername },
     });
 
-    if (!user || !(await verifyPassword(password, user.passwordHash))) {
+    if (!user || user.status !== "ACTIVE") {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+    }
+
+    const ok = await verifyPassword(data.password, user.passwordHash);
+    if (!ok) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
     const token = await createSession(user.id);
     await setSessionCookie(token);
 
-    const redirect = isAdmin(user.role) ? "/admin" : "/";
-    return NextResponse.json({ ok: true, redirect, role: user.role });
+    return NextResponse.json({
+      ok: true,
+      user: { id: user.id, username: user.username, role: user.role },
+    });
   } catch (e) {
-    console.error("login error", e);
-    const msg = e instanceof Error ? e.message : "";
-    if (msg.includes("SESSION_SECRET")) {
-      return NextResponse.json(
-        { error: "Server misconfigured: SESSION_SECRET must be 32+ characters in Coolify." },
-        { status: 500 }
-      );
+    if (e instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid input" }, { status: 400 });
     }
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error("[login]", e);
+    return NextResponse.json({ error: "Login failed" }, { status: 500 });
   }
 }

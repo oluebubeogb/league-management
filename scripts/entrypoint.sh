@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "[entrypoint] Waiting for database…"
+echo "[entrypoint] Waiting for database (external Postgres)…"
 node <<'WAIT_DB'
 const { PrismaClient } = require("@prisma/client");
 const p = new PrismaClient();
@@ -17,7 +17,7 @@ const p = new PrismaClient();
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
-  console.error("[entrypoint] Database timeout");
+  console.error("[entrypoint] Database timeout — check DATABASE_URL points to Coolify Postgres");
   process.exit(1);
 })();
 WAIT_DB
@@ -35,7 +35,7 @@ $PRISMA migrate deploy || {
   $PRISMA db push --accept-data-loss --skip-generate
 }
 
-echo "[entrypoint] Seeding (idempotent)…"
+echo "[entrypoint] Seeding (idempotent — platform admin only)…"
 export NODE_PATH="/prisma-tools/node_modules:${NODE_PATH:-}"
 if [ -f ./prisma/seed.js ]; then
   node ./prisma/seed.js || echo "[entrypoint] Seed reported an error (continuing)"

@@ -1,106 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
 import { prisma } from "@/lib/db";
 import {
   hashPassword,
-  createSession,
-  setSessionCookie,
   normalizeUsername,
   normalizePhone,
+  createSession,
+  setSessionCookie,
 } from "@/lib/auth";
+import { z } from "zod";
 
 const schema = z.object({
-  username: z
-    .string()
-    .min(3)
-    .max(30)
-    .regex(/^[a-zA-Z0-9_]+$/, "Letters, numbers and underscore only"),
+  username: z.string().min(3).max(32),
   phone: z.string().min(7).max(20),
   password: z.string().min(8).max(128),
-  birthYear: z.number().int().min(1940).max(2015),
+  birthYear: z.number().int().min(1940).max(2015).optional(),
 });
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.errors[0]?.message || "Invalid input" },
-        { status: 400 }
-      );
-    }
+    const data = schema.parse(body);
 
-    const { username, phone, password, birthYear } = parsed.data;
-    const normalizedUsername = normalizeUsername(username);
-    const normalizedPhone = normalizePhone(phone);
+    const normalizedUsername = normalizeUsername(data.username);
+    const normalizedPhone = normalizePhone(data.phone);
 
-    if (normalizedPhone.length < 7) {
-      return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
-    }
-
-    const existing = await prisma.user.findFirst({
+    const clash = await prisma.user.findFirst({
       where: {
         OR: [{ normalizedUsername }, { normalizedPhone }],
       },
     });
-    if (existing) {
+    if (clash) {
       return NextResponse.json(
-        { error: "Username or phone number already registered" },
+        { error: "Username or phone already registered" },
         { status: 409 }
       );
     }
 
-    const passwordHash = await hashPassword(password);
+    const passwordHash = await hashPassword(data.password);
     const user = await prisma.user.create({
       data: {
-        username: username.trim(),
+        username: data.username.trim(),
         normalizedUsername,
-        phone: phone.trim(),
+        phone: data.phone.trim(),
         normalizedPhone,
         passwordHash,
-        birthYear,
+        birthYear: data.birthYear ?? null,
         role: "FAN",
       },
     });
 
-    try {
-      const token = await createSession(user.id);
-      await setSessionCookie(token);
-    } catch (sessionErr) {
-      const msg = sessionErr instanceof Error ? sessionErr.message : "";
-      console.error("signup session error", sessionErr);
-      if (msg.includes("SESSION_SECRET")) {
-        return NextResponse.json(
-          {
-            error:
-              "Account created but login session failed. Set SESSION_SECRET (32+ characters) in Coolify, then log in.",
-          },
-          { status: 500 }
-        );
-      }
-      return NextResponse.json(
-        { error: "Account created. Please log in." },
-        { status: 201 }
-      );
-    }
+    const token = await createSession(user.id);
+    await setSessionCookie(token);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({
+      ok: true,
+      user: { id: user.id, username: user.username },
+    });
   } catch (e) {
-    console.error("signup error", e);
-    const msg = e instanceof Error ? e.message : "";
-    if (msg.includes("SESSION_SECRET")) {
-      return NextResponse.json(
-        { error: "Server misconfigured: SESSION_SECRET must be set (32+ characters) in Coolify." },
-        { status: 500 }
-      );
+    if (e instanceof z.ZodError) {
+      return NextResponse.json({ error: e.errors[0]?.message || "Invalid input" }, { status: 400 });
     }
-    if (msg.includes("Unique constraint") || msg.includes("unique")) {
-      return NextResponse.json(
-        { error: "Username or phone number already registered" },
-        { status: 409 }
-      );
-    }
-    return NextResponse.json({ error: "Server error. Please try again." }, { status: 500 });
+    console.error("[signup]", e);
+    return NextResponse.json({ error: "Signup failed" }, { status: 500 });
   }
 }

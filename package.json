@@ -1,8 +1,8 @@
 {
   "name": "league-management",
-  "version": "1.0.0",
+  "version": "2.0.0-phase1",
   "private": true,
-  "description": "League Management official platform — fixtures, standings, predictions, AI analysis",
+  "description": "Multi-league football platform — Phase 1",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
