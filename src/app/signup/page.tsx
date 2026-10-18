@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -15,10 +15,6 @@ export default function SignupPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function update(field: string, value: string) {
-    setForm((f) => ({ ...f, [field]: value }));
-  }
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -28,7 +24,9 @@ export default function SignupPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...form,
+          username: form.username,
+          phone: form.phone,
+          password: form.password,
           birthYear: form.birthYear ? Number(form.birthYear) : undefined,
         }),
       });
@@ -37,7 +35,7 @@ export default function SignupPage() {
         setError(data.error || "Signup failed");
         return;
       }
-      router.push("/");
+      router.push("/leagues/new");
       router.refresh();
     } catch {
       setError("Network error");
@@ -47,86 +45,63 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="container-app flex min-h-[60vh] items-center justify-center py-10">
-      <div className="card w-full max-w-md p-6">
-        <h1 className="text-xl font-bold text-slate-900">Create account</h1>
-        <p className="mt-1 text-sm text-slate-500">Join the fan community</p>
-
-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
-          <div>
-            <label className="label" htmlFor="username">
-              Username
-            </label>
-            <input
-              id="username"
-              className="input"
-              value={form.username}
-              onChange={(e) => update("username", e.target.value)}
-              required
-              minLength={3}
-              maxLength={30}
-              pattern="[a-zA-Z0-9_]+"
-              title="Letters, numbers and underscore only"
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="phone">
-              Phone number
-            </label>
-            <input
-              id="phone"
-              className="input"
-              value={form.phone}
-              onChange={(e) => update("phone", e.target.value)}
-              required
-              type="tel"
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="password">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              className="input"
-              value={form.password}
-              onChange={(e) => update("password", e.target.value)}
-              required
-              minLength={8}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="birthYear">
-              Year of birth
-            </label>
-            <input
-              id="birthYear"
-              type="number"
-              className="input"
-              value={form.birthYear}
-              onChange={(e) => update("birthYear", e.target.value)}
-              required
-              min={1940}
-              max={2015}
-            />
-            <p className="mt-1 text-xs text-slate-400">
-              Used only for account recovery. Not shown publicly.
-            </p>
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" className="btn-primary w-full" disabled={loading}>
-            {loading ? "Creating…" : "Sign up"}
-          </button>
-        </form>
-
-        <p className="mt-4 text-center text-sm text-slate-500">
-          Already have an account?{" "}
-          <Link href="/login" className="text-emerald-600 underline">
+    <div className="container-app flex max-w-md flex-col gap-6 py-10">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Create account</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Already have one?{" "}
+          <Link href="/login" className="font-medium text-emerald-700">
             Log in
           </Link>
         </p>
       </div>
+      <form onSubmit={onSubmit} className="card space-y-4">
+        {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Username</span>
+          <input
+            className="input mt-1"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value })}
+            minLength={3}
+            required
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Phone</span>
+          <input
+            className="input mt-1"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            required
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Password</span>
+          <input
+            type="password"
+            className="input mt-1"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            minLength={8}
+            required
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Birth year (optional, for recovery)</span>
+          <input
+            type="number"
+            className="input mt-1"
+            value={form.birthYear}
+            onChange={(e) => setForm({ ...form, birthYear: e.target.value })}
+            min={1940}
+            max={2015}
+          />
+        </label>
+        <button type="submit" className="btn-primary w-full" disabled={loading}>
+          {loading ? "Creating…" : "Sign up"}
+        </button>
+      </form>
     </div>
   );
 }

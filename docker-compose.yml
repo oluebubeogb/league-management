@@ -1,38 +1,17 @@
-services:
-  db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-league}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_password}
-      POSTGRES_DB: ${POSTGRES_DB:-league_management}
-    volumes:
-      - league_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-league} -d ${POSTGRES_DB:-league_management}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-    # Do NOT expose port publicly in production
-    # ports:
-    #   - "5432:5432"
-    networks:
-      - internal
+# Phase 1 — web only. PostgreSQL is provided by Coolify as an external service.
+# Set DATABASE_URL in Coolify env to point at the Coolify Postgres hostname.
 
+services:
   web:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
-      DATABASE_URL: postgresql://${POSTGRES_USER:-league}:${POSTGRES_PASSWORD:-changeme_strong_password}@db:5432/${POSTGRES_DB:-league_management}?schema=public
+      DATABASE_URL: ${DATABASE_URL}
       SESSION_SECRET: ${SESSION_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       APP_URL: ${APP_URL:-http://localhost:3000}
@@ -47,6 +26,7 @@ services:
       AI_ENABLED: ${AI_ENABLED:-false}
       AI_AUTO_PUBLISH: ${AI_AUTO_PUBLISH:-false}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      FORCE_PRIMARY_ADMIN_RESET: ${FORCE_PRIMARY_ADMIN_RESET:-false}
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
@@ -55,12 +35,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    networks:
-      - internal
-
-volumes:
-  league_pgdata:
-
-networks:
-  internal:
-    driver: bridge

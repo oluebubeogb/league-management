@@ -4,134 +4,66 @@ import { useState } from "react";
 import Link from "next/link";
 
 export default function ForgotPasswordPage() {
-  const [step, setStep] = useState<"identify" | "reset">("identify");
-  const [identifier, setIdentifier] = useState("");
-  const [birthYear, setBirthYear] = useState("");
-  const [token, setToken] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+  const [step, setStep] = useState<"request" | "reset">("request");
+  const [form, setForm] = useState({ username: "", phone: "", birthYear: "", token: "", password: "" });
   const [msg, setMsg] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState("");
 
-  async function requestReset(e: React.FormEvent) {
+  async function requestToken(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError("");
     setMsg("");
-    try {
-      const res = await fetch("/api/auth/recovery", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "request",
-          identifier,
-          birthYear: Number(birthYear),
-        }),
-      });
-      const data = await res.json();
-      // Always show generic message
-      setMsg(data.message || "If the details match, a recovery step is available.");
-      if (data.token) {
-        // Dev/demo: token returned only when recovery is available without SMS
-        setToken(data.token);
-        setStep("reset");
-      }
-    } catch {
-      setError("Network error");
-    } finally {
-      setLoading(false);
+    const res = await fetch("/api/auth/recovery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: form.username,
+        phone: form.phone,
+        birthYear: Number(form.birthYear),
+      }),
+    });
+    const data = await res.json();
+    setMsg(data.message || data.error || "Done");
+    if (data.recoveryToken) {
+      setToken(data.recoveryToken);
+      setStep("reset");
     }
   }
 
-  async function doReset(e: React.FormEvent) {
+  async function resetPassword(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch("/api/auth/recovery", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reset", token, newPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Reset failed");
-        return;
-      }
-      setMsg("Password updated. You can log in.");
-      setStep("identify");
-    } catch {
-      setError("Network error");
-    } finally {
-      setLoading(false);
-    }
+    setMsg("");
+    const res = await fetch("/api/auth/recovery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: form.token || token, password: form.password }),
+    });
+    const data = await res.json();
+    if (res.ok) setMsg("Password updated. You can log in.");
+    else setMsg(data.error || "Failed");
   }
 
   return (
-    <div className="container-app flex min-h-[60vh] items-center justify-center py-10">
-      <div className="card w-full max-w-md p-6">
-        <h1 className="text-xl font-bold">Account recovery</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Fan accounts only. No SMS provider is configured; recovery uses username/phone + year of
-          birth with rate limiting. An SMS/OTP provider can be added later.
-        </p>
-
-        {step === "identify" ? (
-          <form onSubmit={requestReset} className="mt-6 space-y-4">
-            <div>
-              <label className="label">Username or phone</label>
-              <input
-                className="input"
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Year of birth</label>
-              <input
-                type="number"
-                className="input"
-                value={birthYear}
-                onChange={(e) => setBirthYear(e.target.value)}
-                required
-                min={1940}
-                max={2015}
-              />
-            </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            {msg && <p className="text-sm text-emerald-600">{msg}</p>}
-            <button type="submit" className="btn-primary w-full" disabled={loading}>
-              Continue
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={doReset} className="mt-6 space-y-4">
-            <div>
-              <label className="label">New password</label>
-              <input
-                type="password"
-                className="input"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={8}
-              />
-            </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            {msg && <p className="text-sm text-emerald-600">{msg}</p>}
-            <button type="submit" className="btn-primary w-full" disabled={loading}>
-              Set new password
-            </button>
-          </form>
-        )}
-
-        <p className="mt-4 text-center text-sm">
-          <Link href="/login" className="text-emerald-600 underline">
-            Back to login
-          </Link>
-        </p>
-      </div>
+    <div className="container-app max-w-md space-y-6 py-10">
+      <h1 className="text-2xl font-bold">Password recovery</h1>
+      <p className="text-sm text-slate-500">
+        Fan accounts only. No SMS yet — in development a token may be returned for testing.
+      </p>
+      {msg && <p className="rounded-lg bg-slate-100 px-3 py-2 text-sm">{msg}</p>}
+      {step === "request" ? (
+        <form onSubmit={requestToken} className="card space-y-3">
+          <input className="input" placeholder="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+          <input className="input" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required />
+          <input className="input" type="number" placeholder="Birth year" value={form.birthYear} onChange={(e) => setForm({ ...form, birthYear: e.target.value })} required />
+          <button type="submit" className="btn-primary w-full">Request recovery</button>
+        </form>
+      ) : (
+        <form onSubmit={resetPassword} className="card space-y-3">
+          <input className="input" placeholder="Recovery token" value={form.token || token} onChange={(e) => setForm({ ...form, token: e.target.value })} required />
+          <input className="input" type="password" placeholder="New password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} minLength={8} required />
+          <button type="submit" className="btn-primary w-full">Set new password</button>
+        </form>
+      )}
+      <Link href="/login" className="text-sm text-emerald-700">Back to login</Link>
     </div>
   );
 }

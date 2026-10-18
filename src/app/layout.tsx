@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: "%s · League Management",
   },
   description:
-    "Official platform for League Management — fixtures, standings, predictions and AI analysis. Sponsored by High Chief Dickson Oguguo Nzenwa. Aku Bara-Oha 1 Of Ibeku Ancient Kingdom.",
+    "Multi-league platform — create and manage local football leagues, teams, fixtures, standings and predictions.",
   metadataBase: new URL(process.env.APP_URL || "http://localhost:3000"),
   appleWebApp: {
     capable: true,
@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="flex min-h-screen flex-col antialiased">
         <Header />
-        <main className="flex-1 pb-4">{children}</main>
+        <main className="flex-1 pb-16 md:pb-4">{children}</main>
         <Footer />
         <BottomNav />
       </body>

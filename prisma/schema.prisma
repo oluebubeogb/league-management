@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ── Platform-level roles (super-admin) ──────────────────────────────
 enum Role {
   FAN
   ADMIN
@@ -18,6 +19,35 @@ enum UserStatus {
   DISABLED
 }
 
+// ── League-level roles ──────────────────────────────────────────────
+enum LeagueRole {
+  OWNER
+  ADMIN
+  COACH
+  FAN
+  REFEREE
+}
+
+enum MemberStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  LEFT
+}
+
+enum LeagueVisibility {
+  PUBLIC
+  PRIVATE
+  INVITE_ONLY
+}
+
+enum LeagueStatus {
+  ACTIVE
+  ARCHIVED
+  SUSPENDED
+}
+
+// ── Match enums ─────────────────────────────────────────────────────
 enum MatchStatus {
   SCHEDULED
   LIVE
@@ -29,10 +59,13 @@ enum MatchStatus {
 
 enum MatchStage {
   GROUP
+  ROUND_OF_16
   QUARTER_FINAL
   SEMI_FINAL
   THIRD_PLACE
   FINAL
+  FRIENDLY
+  OTHER
 }
 
 enum EventType {
@@ -87,37 +120,40 @@ enum ImportStatus {
   FAILED
 }
 
+// ── User (global) ───────────────────────────────────────────────────
 model User {
-  id                String     @id @default(cuid())
-  username          String
-  normalizedUsername String    @unique
-  phone             String
-  normalizedPhone   String     @unique
-  passwordHash      String
-  birthYear         Int?
-  role              Role       @default(FAN)
-  status            UserStatus @default(ACTIVE)
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  id                 String     @id @default(cuid())
+  username           String
+  normalizedUsername String     @unique
+  phone              String
+  normalizedPhone    String     @unique
+  passwordHash       String
+  birthYear          Int?
+  role               Role       @default(FAN)
+  status             UserStatus @default(ACTIVE)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
-  sessions          Session[]
-  predictions       Prediction[]
-  auditLogs         AdminAuditLog[] @relation("ActorAdmin")
-  matchEvents       MatchEvent[]    @relation("EventCreator")
-  playerImports     PlayerImport[]
-  aiAnalysesReviewed AIAnalysis[]   @relation("AIReviewer")
-  recoveryTokens    RecoveryToken[]
+  sessions           Session[]
+  predictions        Prediction[]
+  auditLogs          AdminAuditLog[]  @relation("ActorAdmin")
+  matchEvents        MatchEvent[]     @relation("EventCreator")
+  playerImports      PlayerImport[]
+  aiAnalysesReviewed AIAnalysis[]     @relation("AIReviewer")
+  recoveryTokens     RecoveryToken[]
+  leaguesCreated     League[]         @relation("LeagueCreator")
+  memberships        LeagueMember[]
 
   @@index([role])
   @@index([status])
 }
 
 model Session {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   revokedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -127,70 +163,136 @@ model Session {
 }
 
 model RecoveryToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  tokenHash String   @unique
+  tokenHash String    @unique
   expiresAt DateTime
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
+// ── League (tenant) ─────────────────────────────────────────────────
+model League {
+  id          String           @id @default(cuid())
+  name        String
+  slug        String           @unique
+  description String?
+  logoUrl     String?
+  country     String?
+  region      String?
+  visibility  LeagueVisibility @default(PUBLIC)
+  status      LeagueStatus     @default(ACTIVE)
+  inviteCode  String?          @unique
+  createdById String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  createdBy User           @relation("LeagueCreator", fields: [createdById], references: [id])
+  members   LeagueMember[]
+  groups    Group[]
+  teams     Team[]
+  matches   Match[]
+  settings  LeagueSetting[]
+
+  @@index([status])
+  @@index([visibility])
+  @@index([createdById])
+}
+
+model LeagueMember {
+  id       String       @id @default(cuid())
+  leagueId String
+  userId   String
+  role     LeagueRole   @default(FAN)
+  status   MemberStatus @default(ACTIVE)
+  joinedAt DateTime     @default(now())
+
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, userId])
+  @@index([userId])
+  @@index([leagueId, role])
+}
+
+model LeagueSetting {
+  id        String   @id @default(cuid())
+  leagueId  String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([leagueId, key])
+}
+
+// ── Competition structure (scoped to League) ────────────────────────
 model Group {
   id           String   @id @default(cuid())
-  code         String   @unique // A, B, C, D
+  leagueId     String
+  code         String
   name         String
-  displayOrder Int
+  displayOrder Int      @default(0)
   createdAt    DateTime @default(now())
 
-  teams  Team[]
+  league  League  @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  teams   Team[]
   matches Match[]
+
+  @@unique([leagueId, code])
+  @@index([leagueId])
 }
 
 model Team {
   id          String   @id @default(cuid())
+  leagueId    String
+  groupId     String?
   name        String
-  slug        String   @unique
-  groupId     String
-  shortName   String?  // 3-char code, admin-editable
-  color1      String   @default("#16a34a") // flag stripe top
-  color2      String   @default("#ffffff") // flag stripe middle
-  color3      String   @default("#0f172a") // flag stripe bottom
+  slug        String
+  shortName   String?
+  color1      String   @default("#16a34a")
+  color2      String   @default("#ffffff")
+  color3      String   @default("#0f172a")
   description String?
   status      String   @default("ACTIVE")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  group          Group         @relation(fields: [groupId], references: [id])
+  league         League         @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  group          Group?         @relation(fields: [groupId], references: [id])
   players        Player[]
-  homeMatches    Match[]       @relation("HomeTeam")
-  awayMatches    Match[]       @relation("AwayTeam")
+  homeMatches    Match[]        @relation("HomeTeam")
+  awayMatches    Match[]        @relation("AwayTeam")
   matchEvents    MatchEvent[]
   playerImports  PlayerImport[]
 
+  @@unique([leagueId, slug])
+  @@index([leagueId])
   @@index([groupId])
 }
 
 model Player {
-  id              String   @id @default(cuid())
-  teamId          String
-  fullName        String
-  normalizedName  String
-  position        String?
-  age             Int?
-  dateOfBirth     DateTime?
-  phone           String?  // private
-  jerseyNumber    Int?
-  nationality     String?
-  status          String   @default("ACTIVE")
-  adminNotes      String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(cuid())
+  teamId         String
+  fullName       String
+  normalizedName String
+  position       String?
+  age            Int?
+  dateOfBirth    DateTime?
+  phone          String?
+  jerseyNumber   Int?
+  nationality    String?
+  status         String    @default("ACTIVE")
+  adminNotes     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  team            Team         @relation(fields: [teamId], references: [id])
+  team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
   eventsAsPlayer  MatchEvent[] @relation("EventPlayer")
   eventsAsRelated MatchEvent[] @relation("RelatedPlayer")
 
@@ -200,29 +302,30 @@ model Player {
 }
 
 model Match {
-  id                  String      @id @default(cuid())
-  stage               MatchStage  @default(GROUP)
-  groupId             String?
-  homeTeamId          String?
-  awayTeamId          String?
-  // Knockout slots: QF1, QF2, QF3, QF4, SF1, SF2, ThirdPlace, Final
-  homeSlot            String?
-  awaySlot            String?
-  slotCode            String?     // e.g. QF1 for the match itself
-  kickoffAt           DateTime?   // null = Time TBC
-  venue               String?
-  status              MatchStatus @default(SCHEDULED)
-  halfTimeHomeScore   Int?
-  halfTimeAwayScore   Int?
-  fullTimeHomeScore   Int?
-  fullTimeAwayScore   Int?
-  published           Boolean     @default(true)
-  notes               String?
-  predictionCutoffAt  DateTime?
-  matchday            Int?
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  id                 String      @id @default(cuid())
+  leagueId           String
+  stage              MatchStage  @default(GROUP)
+  groupId            String?
+  homeTeamId         String?
+  awayTeamId         String?
+  homeSlot           String?
+  awaySlot           String?
+  slotCode           String?
+  kickoffAt          DateTime?
+  venue              String?
+  status             MatchStatus @default(SCHEDULED)
+  halfTimeHomeScore  Int?
+  halfTimeAwayScore  Int?
+  fullTimeHomeScore  Int?
+  fullTimeAwayScore  Int?
+  published          Boolean     @default(true)
+  notes              String?
+  predictionCutoffAt DateTime?
+  matchday           Int?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
+  league      League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   group       Group?       @relation(fields: [groupId], references: [id])
   homeTeam    Team?        @relation("HomeTeam", fields: [homeTeamId], references: [id])
   awayTeam    Team?        @relation("AwayTeam", fields: [awayTeamId], references: [id])
@@ -230,12 +333,15 @@ model Match {
   predictions Prediction[]
   aiAnalyses  AIAnalysis[]
 
+  @@index([leagueId])
   @@index([status])
   @@index([stage])
   @@index([groupId])
   @@index([kickoffAt])
   @@index([homeTeamId])
   @@index([awayTeamId])
+  @@index([leagueId, status])
+  @@index([leagueId, matchday])
 }
 
 model MatchEvent {
@@ -243,7 +349,7 @@ model MatchEvent {
   matchId          String
   teamId           String?
   playerId         String?
-  relatedPlayerId  String?   // assist provider
+  relatedPlayerId  String?
   eventType        EventType
   minute           Int?
   addedTime        Int?
@@ -253,11 +359,11 @@ model MatchEvent {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  match          Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team           Team?  @relation(fields: [teamId], references: [id])
+  match          Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team           Team?   @relation(fields: [teamId], references: [id])
   player         Player? @relation("EventPlayer", fields: [playerId], references: [id])
   relatedPlayer  Player? @relation("RelatedPlayer", fields: [relatedPlayerId], references: [id])
-  createdByAdmin User?  @relation("EventCreator", fields: [createdByAdminId], references: [id])
+  createdByAdmin User?   @relation("EventCreator", fields: [createdByAdminId], references: [id])
 
   @@index([matchId])
   @@index([playerId])
@@ -268,7 +374,6 @@ model Prediction {
   userId          String
   matchId         String
   type            PredictionType
-  // OUTCOME: HOME | DRAW | AWAY
   selectedOutcome String?
   homeScore       Int?
   awayScore       Int?
@@ -282,7 +387,6 @@ model Prediction {
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
 
-  // Multiple predictions allowed per user/match/type (history + double-entry detection)
   @@index([userId, matchId, type])
   @@index([matchId])
   @@index([userId])
@@ -290,21 +394,21 @@ model Prediction {
 }
 
 model AIAnalysis {
-  id            String         @id @default(cuid())
-  matchId       String?
-  analysisType  AIAnalysisType
-  model         String?
-  promptVersion String?
-  sourceSnapshot String?       // JSON reference
-  content       String
-  structured    String?        // JSON
-  status        AIStatus       @default(DRAFT)
-  generatedAt   DateTime?
-  reviewedById  String?
-  publishedAt   DateTime?
-  stale         Boolean        @default(false)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id             String         @id @default(cuid())
+  matchId        String?
+  analysisType   AIAnalysisType
+  model          String?
+  promptVersion  String?
+  sourceSnapshot String?
+  content        String
+  structured     String?
+  status         AIStatus       @default(DRAFT)
+  generatedAt    DateTime?
+  reviewedById   String?
+  publishedAt    DateTime?
+  stale          Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   match      Match? @relation(fields: [matchId], references: [id])
   reviewedBy User?  @relation("AIReviewer", fields: [reviewedById], references: [id])
@@ -317,7 +421,7 @@ model AIAnalysis {
 model AIJob {
   id          String      @id @default(cuid())
   type        String
-  payload     String      // JSON
+  payload     String
   status      AIJobStatus @default(QUEUED)
   attempts    Int         @default(0)
   availableAt DateTime    @default(now())
@@ -335,7 +439,7 @@ model AdminAuditLog {
   action       String
   targetType   String?
   targetId     String?
-  metadata     String?  // JSON, no secrets
+  metadata     String?
   createdAt    DateTime @default(now())
 
   actorAdmin User @relation("ActorAdmin", fields: [actorAdminId], references: [id])
@@ -345,18 +449,18 @@ model AdminAuditLog {
 }
 
 model PlayerImport {
-  id               String       @id @default(cuid())
-  teamId           String
+  id                String       @id @default(cuid())
+  teamId            String
   uploadedByAdminId String
-  filename         String
-  totalRows        Int          @default(0)
-  validRows        Int          @default(0)
-  invalidRows      Int          @default(0)
-  status           ImportStatus @default(PENDING)
-  reportJson       String?
-  createdAt        DateTime     @default(now())
+  filename          String
+  totalRows         Int          @default(0)
+  validRows         Int          @default(0)
+  invalidRows       Int          @default(0)
+  status            ImportStatus @default(PENDING)
+  reportJson        String?
+  createdAt         DateTime     @default(now())
 
-  team           Team @relation(fields: [teamId], references: [id])
+  team            Team @relation(fields: [teamId], references: [id])
   uploadedByAdmin User @relation(fields: [uploadedByAdminId], references: [id])
 
   @@index([teamId])

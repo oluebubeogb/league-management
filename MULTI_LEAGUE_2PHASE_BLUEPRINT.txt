@@ -1,0 +1,304 @@
+================================================================================
+  LEAGUE MANAGEMENT → MULTI-LEAGUE PLATFORM
+  2-PHASE BLUEPRINT (Working Version)
+  Target: Thousands of users can create/manage local leagues, tournaments,
+          clubs/teams, players, fixtures, scores + gamified predictions
+          (virtual coins only, no real money).
+================================================================================
+
+Assumptions
+-----------
+• Existing single-league data (hard-coded Groups A–D, 16 teams, fixtures,
+  seed data) is disposable. Safely wipe it; do NOT migrate it.
+• PostgreSQL runs as a Coolify managed/service DB (not inside docker-compose).
+• Other services (web) stay in docker-compose unless later needed.
+• Predictions expand into gamification: virtual wallet, mock top-up,
+  stakes/rewards from correct predictions. No real-money paths.
+• CSV import + export for the main entities that operators will bulk-manage.
+
+
+================================================================================
+PHASE 1 — Foundation (Multi-tenant core + clean schema + external DB)
+Goal: A working multi-league app where a user can register, create a league,
+      add teams/players/fixtures, enter scores, and see basic standings.
+      Old single-league data is gone. Platform is deployable on Coolify
+      with external Postgres.
+================================================================================
+
+1.1  Schema overhaul (Prisma)
+-----------------------------
+Delete / replace the current single-tournament assumptions.
+
+New core models (minimum viable):
+
+  User                (keep, global)
+  Session / RecoveryToken  (keep)
+
+  League
+    id, name, slug (unique), description, logoUrl?,
+    country?, region?, visibility (PUBLIC|PRIVATE|INVITE_ONLY),
+    status (ACTIVE|ARCHIVED|SUSPENDED),
+    createdById, createdAt, updatedAt
+
+  LeagueMember
+    id, leagueId, userId, role (OWNER|ADMIN|COACH|FAN|…),
+    status, joinedAt
+    @@unique([leagueId, userId])
+
+  Group               (now belongs to League)
+    id, leagueId, code, name, displayOrder
+    @@unique([leagueId, code])
+
+  Team
+    id, leagueId, groupId?, name, slug, shortName?,
+    color1/2/3, description?, status
+    @@unique([leagueId, slug])
+
+  Player
+    id, teamId, fullName, normalizedName, position?, age?,
+    dateOfBirth?, phone?, jerseyNumber?, nationality?, status, adminNotes?
+    @@unique([teamId, normalizedName])
+
+  Match
+    id, leagueId, stage, groupId?, homeTeamId?, awayTeamId?,
+    homeSlot?, awaySlot?, slotCode?,
+    kickoffAt?, venue?, status, scores (HT/FT),
+    published, notes, predictionCutoffAt?, matchday?
+    (no hard-coded knockout slot list — make stage + slots free-form)
+
+  MatchEvent          (keep structure, scoped via Match → League)
+
+  Prediction          (keep + later expand; still scoped via Match)
+
+  AppSetting          (keep global)
+  AdminAuditLog       (keep; add leagueId? optional)
+
+Remove:
+  • Any seed that creates the fixed 4 groups / 16 teams / 24 fixtures
+  • Hard-coded MatchStage values that assume one specific tournament shape
+    (keep the enum flexible or make stage a free string + optional enum)
+
+Add indexes on every (leagueId, …) foreign-key combination.
+
+1.2  Clean migration strategy (no data carry-over)
+--------------------------------------------------
+• Create a brand-new initial migration that reflects the multi-league schema.
+• Drop the old migration history (or squash) — since we are deliberately
+  discarding the single-league data this is safe.
+• In development: `prisma migrate reset` (or drop DB + migrate deploy).
+• In production / Coolify: point to a fresh Postgres database (or drop all
+  tables once). Do NOT attempt to preserve the old Groups/Teams/Matches.
+• Seed only:
+  – Primary platform admin (from env PRIMARY_ADMIN_*)
+  – Optional: one demo league owned by that admin (can be disabled)
+
+1.3  Coolify + external PostgreSQL
+----------------------------------
+• Create a PostgreSQL service in Coolify (managed or container).
+• Note the internal hostname Coolify assigns.
+• Set DATABASE_URL in the application environment to that host
+  (postgresql://user:pass@coolify-pg-host:5432/dbname?schema=public).
+• Edit docker-compose.yml:
+  – Remove the `db` service, volume, and internal network dependency.
+  – Keep only the `web` service.
+  – Pass DATABASE_URL (and all other secrets) from Coolify env.
+• Update scripts/entrypoint.sh:
+  – Keep the “wait for DB” loop (it will now hit the external host).
+  – Keep `prisma migrate deploy`.
+  – Keep idempotent seed (now only creates platform admin + optional demo).
+• Health endpoint stays the same.
+
+1.4  Auth & multi-tenancy plumbing
+----------------------------------
+• Keep existing session / JWT + hashed token system.
+• After login resolve the user’s LeagueMember rows.
+• Introduce:
+  – getSessionUser()
+  – getUserLeagues(userId)
+  – requireLeagueMember(userId, leagueId, minRole?)
+  – setActiveLeague (store activeLeagueId in session or short-lived cookie)
+• Middleware or root layout that injects active league context when the
+  route is under /l/[slug] or when an active league is set.
+• Platform PRIMARY_ADMIN / ADMIN can access everything; league roles only
+  their own league.
+
+1.5  Core API & pages (minimum)
+-------------------------------
+Public / user:
+  • Signup / Login / Logout / Account (keep)
+  • League discovery (list PUBLIC leagues) + “My leagues”
+  • Create league (authenticated user becomes OWNER)
+  • Join league (invite code or request for PRIVATE)
+  • League home: /l/[slug]
+  • Fixtures, Groups/Standings, Results, Match detail — all scoped to league
+
+League admin (OWNER / ADMIN of that league):
+  • Teams CRUD
+  • Players CRUD (single + CSV later in Phase 2)
+  • Matches / Fixtures CRUD + score entry
+  • Basic standings calculation (Pts → GD → GF) per group
+
+Platform admin:
+  • User list / disable
+  • League list / suspend
+  • Keep existing admin shell; scope or hide single-league pages
+
+1.6  Routing suggestion
+-----------------------
+  /                     → marketing + discover + my leagues
+  /l/[leagueSlug]       → league dashboard
+  /l/[leagueSlug]/fixtures
+  /l/[leagueSlug]/groups
+  /l/[leagueSlug]/results
+  /l/[leagueSlug]/matches/[id]
+  /l/[leagueSlug]/admin/...   → league admin
+  /admin/...            → platform admin
+  /account
+  /predictions          → later expanded; for Phase 1 can stay simple
+                          or be league-scoped
+
+1.7  Phase 1 acceptance criteria
+--------------------------------
+✓ Fresh database, no leftover single-league data
+✓ User can register and create a league
+✓ League owner can add groups, teams, players, fixtures
+✓ Scores can be entered; standings update
+✓ Multiple independent leagues exist side-by-side
+✓ App deploys on Coolify using external Postgres
+✓ Old seed fixtures / hard-coded tournament gone
+
+
+================================================================================
+PHASE 2 — Bulk operations + Gamification + Polish
+Goal: Production-usable for local organisers: CSV import/export for the
+      main entities, expanded predictions with virtual currency, basic
+      discovery and leaderboards.
+================================================================================
+
+2.1  CSV Import / Export (high priority)
+----------------------------------------
+Reuse the existing PlayerImport pattern and generalise it.
+
+Supported entities (minimum set):
+
+  Entity          Import columns (examples)                  Export
+  ----------------------------------------------------------------
+  Teams           name, shortName, groupCode, colors…        yes
+  Players         teamName/slug, fullName, position, age,
+                  jersey, phone (private)…                   yes
+  Fixtures        matchday, stage, homeTeam, awayTeam,
+                  kickoff, venue, group…                     yes
+  Scores          matchId or (home+away+date), HT/FT scores,
+                  status                                     yes
+  Groups          code, name, displayOrder                   yes
+  LeagueMembers   (optional) username/phone, role            limited
+
+Implementation notes:
+• Admin selects league (context) → chooses entity → uploads CSV
+• Preview step: row numbers, validation errors, “will create / update / skip”
+• Commit only valid rows; return a report (same pattern as current player import)
+• Duplicate handling rules documented per entity
+  (e.g. Team by slug inside league, Player by normalizedName inside team,
+   Fixture by home+away+matchday or external ID)
+• Export: “Download CSV” button on the corresponding admin list pages
+  (respect current filters; stream or generate on the fly)
+• All import/export actions logged in AdminAuditLog with leagueId
+
+2.2  Gamified predictions (virtual only)
+----------------------------------------
+Add:
+
+  Wallet
+    userId (unique), balance (Int, default 0 or starter amount)
+
+  Transaction
+    userId, amount (+/-), type (PREDICTION_STAKE | PREDICTION_WIN |
+    MOCK_DEPOSIT | ADMIN_ADJUST | BONUS | REFUND),
+    referenceId?, note?, createdAt
+
+Behaviour:
+• On first wallet creation give a starter balance (e.g. 1 000 coins)
+• “Mock top-up” button (self or admin) — purely for fun / testing
+• Prediction can optionally stake coins (or stay free + points only)
+• On match FULL_TIME grade predictions → award points + coins
+  (correct score > outcome > etc.; multipliers configurable later)
+• Leaderboards: global, per-league, weekly
+• Keep existing Prediction model; add optional stakeAmount / potentialPayout
+• UI: wallet balance in header/account, transaction history, prediction form
+  shows potential reward
+
+No real-money deposit, withdrawal, or payout paths. Ever.
+
+2.3  Additional Phase 2 features
+--------------------------------
+• Invite codes / shareable join links for private leagues
+• League settings page (visibility, default prediction rules, timezone…)
+• Basic search / filter on public league directory
+• Soft-delete or archive for leagues, teams, matches
+• Rate limiting on auth + import endpoints
+• Pagination on all list views
+• Keep AI analysis optional and scoped to league matches (if time)
+
+2.4  Phase 2 acceptance criteria
+--------------------------------
+✓ CSV import + export works for Teams, Players, Fixtures, Scores
+✓ Preview → commit flow with clear error report
+✓ Users have a virtual wallet; can mock-load coins
+✓ Predictions can award coins; leaderboard visible
+✓ Multiple real organisers can run independent leagues without colliding
+✓ Platform still deploys cleanly on Coolify with external Postgres
+
+
+================================================================================
+SUGGESTED IMPLEMENTATION ORDER (condensed)
+================================================================================
+
+Phase 1
+  1. New Prisma schema (League, LeagueMember, scoped models)
+  2. Wipe old migrations / create fresh initial migration
+  3. Update seed → platform admin only (+ optional demo league)
+  4. docker-compose + entrypoint for external Postgres
+  5. Auth helpers + active-league context
+  6. League create / join / switcher
+  7. Scope all existing queries & pages to leagueId
+  8. League admin: teams, players, fixtures, score entry, standings
+  9. Deploy & smoke-test on Coolify
+
+Phase 2
+  1. Generalise CSV import service (preview + commit)
+  2. Wire import/export UI for Teams, Players, Fixtures, Scores
+  3. Wallet + Transaction models + mock top-up
+  4. Expand prediction grading to award coins
+  5. Leaderboards + account wallet view
+  6. Invite codes, league settings, polish & pagination
+  7. Final acceptance testing with 2–3 independent sample leagues
+
+
+================================================================================
+OUT OF SCOPE FOR THIS WORKING VERSION (later)
+================================================================================
+• Real-money payments or withdrawals
+• Mobile native apps
+• Advanced knockout bracket auto-generation UI
+• Multi-language / i18n
+• Heavy caching / Redis (add only when needed)
+• Separate micro-services
+
+
+================================================================================
+QUICK REFERENCE — FILES TO TOUCH FIRST
+================================================================================
+  prisma/schema.prisma          ← full rewrite of domain models
+  prisma/migrations/            ← fresh initial migration
+  prisma/seed.ts (or .js)       ← platform admin only
+  docker-compose.yml            ← remove db service
+  scripts/entrypoint.sh         ← keep wait + migrate, no local db assumption
+  .env.example                  ← DATABASE_URL points to external host
+  src/lib/auth*.ts / session    ← add league context helpers
+  src/app/l/[slug]/…           ← new league-scoped routes
+  src/app/api/…                 ← all queries filter by leagueId
+  (Phase 2) src/lib/csv/…       ← shared import/export utilities
+
+
+End of blueprint.
+================================================================================
