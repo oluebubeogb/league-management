@@ -3,8 +3,13 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
-# Prefer npm ci when lockfile exists; fall back to install
-RUN if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi
+# npm ci is flaky on some hosts ("Exit handler never called").
+# Use npm install with retries; always verify prisma lands in node_modules.
+RUN npm install --ignore-scripts --no-audit --no-fund \
+    || (sleep 5 && npm install --ignore-scripts --no-audit --no-fund) \
+    || (sleep 10 && npm install --ignore-scripts --no-audit --no-fund)
+RUN test -x ./node_modules/.bin/prisma || npm install prisma@6.19.0 @prisma/client@6.19.0 --ignore-scripts --no-audit --no-fund
+RUN test -x ./node_modules/.bin/prisma
 
 # ── Stage 2: builder ─────────────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -13,14 +18,18 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
-# Use the project-pinned Prisma from node_modules (NOT npx, which may fetch Prisma 7+)
+# Prefer local binary; fall back to pinned install if deps stage was incomplete
+RUN if [ ! -x ./node_modules/.bin/prisma ]; then \
+      npm install prisma@6.19.0 @prisma/client@6.19.0 --ignore-scripts --no-audit --no-fund; \
+    fi
 RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
 # ── Stage 3: prisma tools (migrate + seed at runtime) ────────────────
 FROM node:20-alpine AS prisma-tools
 WORKDIR /prisma-tools
-RUN npm init -y && npm install prisma@6.19.0 @prisma/client@6.19.0 tsx bcryptjs
+RUN npm init -y \
+ && npm install prisma@6.19.0 @prisma/client@6.19.0 tsx bcryptjs --no-audit --no-fund
 
 # ── Stage 4: runner ──────────────────────────────────────────────────
 FROM node:20-alpine AS runner
