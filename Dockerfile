@@ -3,8 +3,8 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json* ./
-# Ignore scripts: postinstall runs prisma generate, but schema is not in this layer yet
-RUN npm ci --ignore-scripts || npm install --ignore-scripts
+# Prefer npm ci when lockfile exists; fall back to install
+RUN if [ -f package-lock.json ]; then npm ci --ignore-scripts; else npm install --ignore-scripts; fi
 
 # ── Stage 2: builder ─────────────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -13,13 +13,14 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
-RUN npx prisma generate
+# Use the project-pinned Prisma from node_modules (NOT npx, which may fetch Prisma 7+)
+RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
 # ── Stage 3: prisma tools (migrate + seed at runtime) ────────────────
 FROM node:20-alpine AS prisma-tools
 WORKDIR /prisma-tools
-RUN npm init -y && npm install prisma@6.3.0 @prisma/client@6.3.0 tsx bcryptjs
+RUN npm init -y && npm install prisma@6.19.0 @prisma/client@6.19.0 tsx bcryptjs
 
 # ── Stage 4: runner ──────────────────────────────────────────────────
 FROM node:20-alpine AS runner
