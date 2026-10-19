@@ -1,8 +1,8 @@
 {
   "name": "league-management",
-  "version": "2.0.0-phase1",
+  "version": "2.0.0-phase2",
   "private": true,
-  "description": "Multi-league football platform — Phase 1",
+  "description": "Multi-league football platform \u2014 Phase 2 (CSV + wallet + predictions)",
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",

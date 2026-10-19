@@ -120,6 +120,24 @@ enum ImportStatus {
   FAILED
 }
 
+enum TransactionType {
+  PREDICTION_STAKE
+  PREDICTION_WIN
+  MOCK_DEPOSIT
+  ADMIN_ADJUST
+  BONUS
+  REFUND
+  STARTER
+}
+
+enum CsvEntity {
+  TEAMS
+  PLAYERS
+  FIXTURES
+  SCORES
+  GROUPS
+}
+
 // ── User (global) ───────────────────────────────────────────────────
 model User {
   id                 String     @id @default(cuid())
@@ -143,6 +161,9 @@ model User {
   recoveryTokens     RecoveryToken[]
   leaguesCreated     League[]         @relation("LeagueCreator")
   memberships        LeagueMember[]
+  wallet             Wallet?
+  transactions       Transaction[]
+  csvImports         CsvImport[]
 
   @@index([role])
   @@index([status])
@@ -192,11 +213,12 @@ model League {
   updatedAt   DateTime         @updatedAt
 
   createdBy User           @relation("LeagueCreator", fields: [createdById], references: [id])
-  members   LeagueMember[]
-  groups    Group[]
-  teams     Team[]
-  matches   Match[]
-  settings  LeagueSetting[]
+  members    LeagueMember[]
+  groups     Group[]
+  teams      Team[]
+  matches    Match[]
+  settings   LeagueSetting[]
+  csvImports CsvImport[]
 
   @@index([status])
   @@index([visibility])
@@ -381,6 +403,9 @@ model Prediction {
   status          PredictionStatus @default(ACTIVE)
   isCorrect       Boolean?
   pointsAwarded   Int?
+  stakeAmount     Int              @default(0)
+  potentialPayout Int?
+  coinsAwarded    Int?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
@@ -471,4 +496,55 @@ model AppSetting {
   key       String   @unique
   value     String
   updatedAt DateTime @updatedAt
+}
+
+// ── Phase 2: Virtual wallet + CSV imports ───────────────────────────
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  balance   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String
+  amount      Int
+  type        TransactionType
+  referenceId String?
+  note        String?
+  createdAt   DateTime        @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model CsvImport {
+  id                String       @id @default(cuid())
+  leagueId          String
+  entity            CsvEntity
+  uploadedByAdminId String
+  filename          String
+  totalRows         Int          @default(0)
+  validRows         Int          @default(0)
+  invalidRows       Int          @default(0)
+  createdRows       Int          @default(0)
+  updatedRows       Int          @default(0)
+  skippedRows       Int          @default(0)
+  status            ImportStatus @default(PENDING)
+  reportJson        String?
+  createdAt         DateTime     @default(now())
+
+  league          League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  uploadedByAdmin User   @relation(fields: [uploadedByAdminId], references: [id])
+
+  @@index([leagueId])
+  @@index([entity])
+  @@index([uploadedByAdminId])
 }

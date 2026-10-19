@@ -1,8 +1,6 @@
-# League Management — Phase 1 (Multi-league)
+# League Management — Phase 2
 
-Multi-tenant football league platform. Users register, create local leagues, manage teams/players/fixtures/scores, and view standings.
-
-**Phase 1 scope:** multi-league core, external Postgres (Coolify), no legacy single-league data.
+Multi-tenant football league platform with CSV bulk ops, virtual wallet, and gamified predictions.
 
 ## Stack
 
@@ -11,42 +9,36 @@ Multi-tenant football league platform. Users register, create local leagues, man
 - Session auth (JWT + hashed tokens)
 - Docker / Coolify
 
+## Phase 2 features
+
+- **CSV import/export** for Teams, Players, Groups, Fixtures, Scores (preview → commit)
+- **Virtual wallet** — starter coins, mock top-up, transaction history (no real money)
+- **Predictions** — 1X2 + correct score with optional coin stakes; auto-graded on FULL_TIME
+- **Leaderboards** — global and per-league by prediction points
+- Invite codes, multi-league core (from Phase 1)
+
 ## Quick start (local)
 
 ```bash
 cp .env.example .env
-# Set DATABASE_URL to a local or remote Postgres
-# Set SESSION_SECRET (>=32 chars), PRIMARY_ADMIN_*
+# Set SESSION_SECRET, PRIMARY_ADMIN_*, POSTGRES_PASSWORD
 
-npm install
-npx prisma migrate deploy
-npx tsx prisma/seed.ts
-npm run dev
+docker compose up --build
+# or: npm install && npx prisma migrate deploy && npx tsx prisma/seed.ts && npm run dev
 ```
 
 ## Coolify
 
-1. Create a **PostgreSQL** service in Coolify.
-2. Create this app as Docker Compose (compose file = `docker-compose.yml`).
-3. Set env vars from `.env.example` — especially `DATABASE_URL` pointing at the Coolify Postgres **internal hostname**.
-4. Deploy. Entrypoint waits for DB, runs migrations, seeds platform admin + optional demo league.
+### Option A — Postgres inside Compose (recommended if linking external DB fails)
 
-There is **no** Postgres service in Compose.
+Use the included `docker-compose.yml` (services: `db` + `web`). Set `POSTGRES_PASSWORD`, `SESSION_SECRET`, `PRIMARY_ADMIN_*`, `APP_URL`.
 
-## What Phase 1 includes
+### Option B — External Coolify Postgres
 
-- Global users + league memberships (OWNER / ADMIN / COACH / FAN / REFEREE)
-- Create / join / discover leagues (public + invite codes)
-- League-scoped groups, teams, players, matches
-- Score entry + group standings
-- Platform admin overview
-- Auth: signup, login, logout, basic recovery
-
-## What comes in Phase 2
-
-- CSV import/export (teams, players, fixtures, scores)
-- Virtual wallet + prediction gamification
-- Leaderboards, invite polish, pagination
+1. Create a PostgreSQL service in Coolify.
+2. Set `DATABASE_URL` to the **internal** hostname.
+3. Remove or ignore the `db` service if you prefer external only.
+4. Deploy. Entrypoint waits for DB, runs migrations, seeds platform admin.
 
 ## Routes
 
@@ -60,10 +52,29 @@ There is **no** Postgres service in Compose.
 | `/l/[slug]/groups` | Tables |
 | `/l/[slug]/results` | Results |
 | `/l/[slug]/teams` | Teams |
-| `/l/[slug]/admin` | League admin (groups/teams/matches/scores) |
+| `/l/[slug]/admin` | League admin (+ CSV import tab) |
 | `/admin` | Platform admin |
-| `/account` | Profile + memberships |
+| `/account` | Profile + wallet + memberships |
+| `/leaderboard` | Global prediction leaderboard |
+
+## CSV columns (templates)
+
+- **Teams:** `name, shortName, groupCode, color1, color2, color3, description`
+- **Players:** `fullName, team, team_slug, position, age, jerseyNumber, phone, nationality`
+- **Groups:** `code, name, displayOrder`
+- **Fixtures:** `matchday, stage, home, away, kickoff, venue, group`
+- **Scores:** `match_id, home, away, matchday, ht_home, ht_away, ft_home, ft_away, status`
+
+Import flow: Admin → CSV tab → choose entity → Preview → Commit valid rows. Export downloads current data.
+
+## Predictions & coins
+
+- Starter balance: **1000** coins on first wallet open
+- Mock top-up: +500 (account page)
+- Stakes optional; payouts: correct score ×4, outcome ×2
+- Grading runs automatically when a match is set to FULL_TIME
+- **No real-money paths**
 
 ## Seed
 
-Idempotent. Creates `PRIMARY_ADMIN` from env and a public **Demo League** (slug `demo-league`, invite `DEMO2026`). No hard-coded tournament fixtures.
+Idempotent. Creates `PRIMARY_ADMIN` from env and optional public **Demo League** (`demo-league` / invite `DEMO2026`).

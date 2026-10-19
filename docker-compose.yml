@@ -13,7 +13,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    # No ports exposed – only reachable inside the Docker network
 
   web:
     build:
@@ -27,7 +26,6 @@ services:
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
-      # Internal Docker hostname = service name "db"
       DATABASE_URL: postgresql://league:${POSTGRES_PASSWORD:-change_me_strong_password}@db:5432/league_management?schema=public
       SESSION_SECRET: ${SESSION_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}

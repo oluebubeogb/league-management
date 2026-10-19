@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUser, requireLeagueRole, AuthError } from "@/lib/auth";
 import { z } from "zod";
+import { gradeMatchPredictions } from "@/lib/predictions";
 
 const createSchema = z.object({
   stage: z
@@ -91,6 +92,14 @@ export async function POST(
         },
         include: { homeTeam: true, awayTeam: true },
       });
+      // Phase 2: grade predictions when match is full-time
+      if (data.status === "FULL_TIME" && match.fullTimeHomeScore != null && match.fullTimeAwayScore != null) {
+        try {
+          await gradeMatchPredictions(match.id);
+        } catch (err) {
+          console.error("[matches] grade predictions", err);
+        }
+      }
       return NextResponse.json({ ok: true, match });
     }
 

@@ -32,6 +32,9 @@ export async function Header() {
           <Link href="/" className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
             Discover
           </Link>
+          <Link href="/leaderboard" className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
+            Leaderboard
+          </Link>
           {activeLeague && (
             <>
               <Link

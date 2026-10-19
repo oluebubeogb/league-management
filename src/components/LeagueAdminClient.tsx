@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { CsvImportClient } from "@/components/CsvImportClient";
 
 type Group = { id: string; code: string; name: string };
 type Team = { id: string; name: string; groupId: string | null; groupCode: string | null };
@@ -32,7 +33,7 @@ export function LeagueAdminClient({
 }) {
   const router = useRouter();
   const [msg, setMsg] = useState("");
-  const [tab, setTab] = useState<"groups" | "teams" | "matches" | "scores">("groups");
+  const [tab, setTab] = useState<"groups" | "teams" | "matches" | "scores" | "import">("groups");
 
   async function post(path: string, body: unknown) {
     setMsg("");
@@ -54,7 +55,7 @@ export function LeagueAdminClient({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        {(["groups", "teams", "matches", "scores"] as const).map((t) => (
+        {(["groups", "teams", "matches", "scores", "import"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -285,6 +286,8 @@ function ScoreRow({
       >
         Save
       </button>
+
+      {tab === "import" && <CsvImportClient leagueId={leagueId} />}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionUser, getUserLeagues } from "@/lib/auth";
 import { LogoutButton } from "@/components/LogoutButton";
+import { WalletClient } from "@/components/WalletClient";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,8 @@ export default async function AccountPage() {
         <LogoutButton />
       </div>
 
+      <WalletClient />
+
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">My leagues</h2>
@@ -50,6 +53,12 @@ export default async function AccountPage() {
           </ul>
         )}
       </section>
+
+      <p className="text-sm">
+        <Link href="/leaderboard" className="font-medium text-emerald-700">
+          View leaderboard →
+        </Link>
+      </p>
     </div>
   );
 }
