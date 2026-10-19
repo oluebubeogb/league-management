@@ -1,14 +1,34 @@
 services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: league
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_strong_password}
+      POSTGRES_DB: league_management
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U league -d league_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No ports exposed – only reachable inside the Docker network
+
   web:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: "3000"
       HOSTNAME: "0.0.0.0"
-      DATABASE_URL: ${DATABASE_URL}
+      # Internal Docker hostname = service name "db"
+      DATABASE_URL: postgresql://league:${POSTGRES_PASSWORD:-change_me_strong_password}@db:5432/league_management?schema=public
       SESSION_SECRET: ${SESSION_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       APP_URL: ${APP_URL:-http://localhost:3000}
@@ -26,10 +46,12 @@ services:
       FORCE_PRIMARY_ADMIN_RESET: ${FORCE_PRIMARY_ADMIN_RESET:-false}
     expose:
       - "3000"
-    # No host ports: — Coolify proxy connects on the Docker network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 90s
+
+volumes:
+  postgres_data:
