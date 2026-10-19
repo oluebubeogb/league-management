@@ -1,0 +1,57 @@
+# Use this in Coolify if local Docker builds keep OOMing.
+# 1. Push main → GitHub Actions builds ghcr.io/<you>/league-management:latest
+# 2. In Coolify, set compose file to docker-compose.prebuilt.yml
+# 3. Make the GHCR package public, or add a pull secret.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: league
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_strong_password}
+      POSTGRES_DB: league_management
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U league -d league_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    image: ghcr.io/oluebubeogb/league-management:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      DATABASE_URL: postgresql://league:${POSTGRES_PASSWORD:-change_me_strong_password}@db:5432/league_management?schema=public
+      SESSION_SECRET: ${SESSION_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      PRIMARY_ADMIN_USERNAME: ${PRIMARY_ADMIN_USERNAME}
+      PRIMARY_ADMIN_PASSWORD: ${PRIMARY_ADMIN_PASSWORD}
+      PRIMARY_ADMIN_PHONE: ${PRIMARY_ADMIN_PHONE}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
+      LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1500}
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_AUTO_PUBLISH: ${AI_AUTO_PUBLISH:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      FORCE_PRIMARY_ADMIN_RESET: ${FORCE_PRIMARY_ADMIN_RESET:-false}
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  postgres_data:
