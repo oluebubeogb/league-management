@@ -82,7 +82,11 @@ export function LeagueAdminClient({
           </ul>
           <GroupForm
             onSubmit={async (code, name) => {
-              await post(`/api/leagues/${leagueId}/groups`, { code, name, displayOrder: groups.length });
+              await post(`/api/leagues/${leagueId}/groups`, {
+                code,
+                name,
+                displayOrder: groups.length,
+              });
             }}
           />
         </div>
@@ -100,8 +104,8 @@ export function LeagueAdminClient({
           </ul>
           <TeamForm
             groups={groups}
-            onSubmit={async (name, shortName, groupId) => {
-              await post(`/api/leagues/${leagueId}/teams`, { name, shortName, groupId: groupId || null });
+            onSubmit={async (name, groupId) => {
+              await post(`/api/leagues/${leagueId}/teams`, { name, groupId: groupId || null });
             }}
           />
         </div>
@@ -109,7 +113,15 @@ export function LeagueAdminClient({
 
       {tab === "matches" && (
         <div className="card space-y-3">
-          <h2 className="font-semibold">Add fixture</h2>
+          <h2 className="font-semibold">Matches</h2>
+          <ul className="text-sm">
+            {matches.slice(0, 20).map((m) => (
+              <li key={m.id}>
+                {m.homeName} vs {m.awayName}
+                {m.matchday != null ? ` (MD ${m.matchday})` : ""}
+              </li>
+            ))}
+          </ul>
           <MatchForm
             teams={teams}
             groups={groups}
@@ -117,31 +129,32 @@ export function LeagueAdminClient({
               await post(`/api/leagues/${leagueId}/matches`, payload);
             }}
           />
-          <h3 className="pt-2 text-sm font-medium text-slate-500">Recent</h3>
-          <ul className="text-sm">
-            {matches.slice(0, 15).map((m) => (
-              <li key={m.id}>
-                {m.homeName} vs {m.awayName} · {m.status}
-              </li>
-            ))}
-          </ul>
         </div>
       )}
 
       {tab === "scores" && (
         <div className="card space-y-3">
-          <h2 className="font-semibold">Enter scores</h2>
-          {matches.map((m) => (
-            <ScoreRow
-              key={m.id}
-              match={m}
-              onSave={async (payload) => {
-                await post(`/api/leagues/${leagueId}/matches`, { matchId: m.id, ...payload });
-              }}
-            />
-          ))}
+          <h2 className="font-semibold">Score entry</h2>
+          {matches.length === 0 ? (
+            <p className="text-sm text-slate-500">No matches yet.</p>
+          ) : (
+            matches.map((m) => (
+              <ScoreRow
+                key={m.id}
+                match={m}
+                onSave={async (payload) => {
+                  await post(`/api/leagues/${leagueId}/matches`, {
+                    matchId: m.id,
+                    ...payload,
+                  });
+                }}
+              />
+            ))
+          )}
         </div>
       )}
+
+      {tab === "import" && <CsvImportClient leagueId={leagueId} />}
     </div>
   );
 }
@@ -151,9 +164,23 @@ function GroupForm({ onSubmit }: { onSubmit: (code: string, name: string) => Pro
   const [name, setName] = useState("");
   return (
     <div className="flex flex-wrap gap-2">
-      <input className="input w-20" placeholder="Code" value={code} onChange={(e) => setCode(e.target.value)} />
-      <input className="input flex-1" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-      <button type="button" className="btn-primary" onClick={() => onSubmit(code, name)}>
+      <input
+        className="input w-20"
+        placeholder="Code"
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+      />
+      <input
+        className="input"
+        placeholder="Name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <button
+        type="button"
+        className="btn-primary"
+        onClick={() => code && name && onSubmit(code, name)}
+      >
         Add group
       </button>
     </div>
@@ -165,15 +192,18 @@ function TeamForm({
   onSubmit,
 }: {
   groups: Group[];
-  onSubmit: (name: string, shortName: string, groupId: string) => Promise<void>;
+  onSubmit: (name: string, groupId: string) => Promise<void>;
 }) {
   const [name, setName] = useState("");
-  const [shortName, setShort] = useState("");
   const [groupId, setGroupId] = useState("");
   return (
     <div className="flex flex-wrap gap-2">
-      <input className="input flex-1" placeholder="Team name" value={name} onChange={(e) => setName(e.target.value)} />
-      <input className="input w-20" placeholder="Abbr" value={shortName} onChange={(e) => setShort(e.target.value)} />
+      <input
+        className="input"
+        placeholder="Team name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
       <select className="input" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
         <option value="">No group</option>
         {groups.map((g) => (
@@ -182,7 +212,11 @@ function TeamForm({
           </option>
         ))}
       </select>
-      <button type="button" className="btn-primary" onClick={() => onSubmit(name, shortName, groupId)}>
+      <button
+        type="button"
+        className="btn-primary"
+        onClick={() => name && onSubmit(name, groupId)}
+      >
         Add team
       </button>
     </div>
@@ -196,7 +230,7 @@ function MatchForm({
 }: {
   teams: Team[];
   groups: Group[];
-  onSubmit: (p: Record<string, unknown>) => Promise<void>;
+  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
 }) {
   const [homeTeamId, setHome] = useState("");
   const [awayTeamId, setAway] = useState("");
@@ -228,7 +262,12 @@ function MatchForm({
           </option>
         ))}
       </select>
-      <input className="input w-20" placeholder="MD" value={matchday} onChange={(e) => setMd(e.target.value)} />
+      <input
+        className="input w-20"
+        placeholder="MD"
+        value={matchday}
+        onChange={(e) => setMd(e.target.value)}
+      />
       <button
         type="button"
         className="btn-primary"
@@ -263,9 +302,19 @@ function ScoreRow({
       <span className="min-w-[10rem] font-medium">
         {match.homeName} vs {match.awayName}
       </span>
-      <input className="input w-14" value={ftHome} onChange={(e) => setFtH(e.target.value)} placeholder="H" />
+      <input
+        className="input w-14"
+        value={ftHome}
+        onChange={(e) => setFtH(e.target.value)}
+        placeholder="H"
+      />
       <span>–</span>
-      <input className="input w-14" value={ftAway} onChange={(e) => setFtA(e.target.value)} placeholder="A" />
+      <input
+        className="input w-14"
+        value={ftAway}
+        onChange={(e) => setFtA(e.target.value)}
+        placeholder="A"
+      />
       <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
         {["SCHEDULED", "LIVE", "HALF_TIME", "FULL_TIME", "POSTPONED", "CANCELLED"].map((s) => (
           <option key={s} value={s}>
@@ -286,8 +335,6 @@ function ScoreRow({
       >
         Save
       </button>
-
-      {tab === "import" && <CsvImportClient leagueId={leagueId} />}
     </div>
   );
 }
